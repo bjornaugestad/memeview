@@ -1,14 +1,31 @@
+#include <QApplication>
 #include <QtWidgets>
 
-static bool isImg(const QString &p)
+static bool is_image(const QString &p)
 {
     static const QSet<QString> exts = {"png", "jpg", "jpeg", "webp", "bmp", "gif"};
     return exts.contains(QFileInfo(p).suffix().toLower());
 }
 
-struct FileSet {
+class FileSet {
     QStringList files;
     int _icurr = 0;
+
+public:
+    int nfiles() const { return files.size(); }
+    int icurr() const { return _icurr; }
+    void move_forward() { _icurr++; }
+    void move_backward() { _icurr--; }
+    void rename(const QString & name)
+    {
+        files[_icurr] = name;
+    }
+    
+
+    void add(const QString & file)
+    {
+        files += file;
+    }
 
     QString cur() const { return files.value(_icurr); }
 
@@ -36,8 +53,8 @@ public:
 
         for (const QString &pth : paths) {
             QFileInfo fi(pth);
-            if (fi.isFile() && isImg(fi.filePath()))
-                set.files << fi.absoluteFilePath();
+            if (fi.isFile() && is_image(fi.filePath()))
+                set.add(fi.absoluteFilePath());
         }
 
         if (set.empty()) {
@@ -78,18 +95,22 @@ public:
 
     void next()
     {
-        if (set._icurr < set.files.size() - 1) {
-            ++set._icurr;
+        if (set.icurr() < set.nfiles() - 1) {
+            set.move_forward();
             showImg();
         }
+        else
+            QApplication::beep();
     }
 
     void prev()
     {
-        if (set._icurr > 0) {
-            --set._icurr;
+        if (set.icurr() > 0) {
+            set.move_backward();
             showImg();
         }
+        else
+            QApplication::beep();
     }
 
     void renameCurrent()
@@ -103,22 +124,23 @@ public:
             return;
         }
 
-        // Append original extension hvis bruker ikke skrev en
+        // Append original extension if user didn't add a new one
         if (QFileInfo(nn).suffix().isEmpty() && !fi.suffix().isEmpty())
             nn += "." + fi.suffix();
 
         const QString np = fi.dir().filePath(nn);
         if (QFile::exists(np)) {
-            if (QMessageBox::question(this, "Overwrite?", QFileInfo(np).fileName() + " exists. Overwrite?") != QMessageBox::Yes) {
-                setFocus(Qt::OtherFocusReason);
-                return;
+            const auto choice = QMessageBox::question(this, "Overwrite?", QFileInfo(np).fileName() + " exists. Overwrite?");
+            if (choice == QMessageBox::Yes) {
+                QFile::remove(np);
             }
-
-            QFile::remove(np);
+            else {
+                setFocus(Qt::OtherFocusReason);
+            }
         }
 
         if (QFile::rename(fi.absoluteFilePath(), np)) {
-            set.files[set._icurr] = QFileInfo(np).absoluteFilePath();
+            set.rename(QFileInfo(np).absoluteFilePath());
             showImg();
         }
         else {
@@ -128,7 +150,7 @@ public:
     }
 
     void deleteCurrent()
-    { // permanent delete
+    {
         const QString path = set.cur();
         if (!QFile::remove(path)) {
             QMessageBox::warning(this, "Delete failed", "Could not delete file.");
@@ -154,9 +176,7 @@ public:
             subdirs << d.fileName();
 
         bool ok = false;
-        QString choice = QInputDialog::getItem(this,
-            "Move to directory", "Destination directory:",
-            subdirs, 0, true, &ok);
+        QString choice = QInputDialog::getItem(this, "Move to directory", "Destination directory:", subdirs, 0, true, &ok);
 
         if (!ok || choice.trimmed().isEmpty()) {
             setFocus(Qt::OtherFocusReason);
@@ -173,8 +193,8 @@ public:
         const QString target = QDir(destDir).filePath(fi.fileName());
 
         if (QFile::exists(target)) {
-            if (QMessageBox::question(this, "Overwrite?", QFileInfo(target).fileName() + " exists. Overwrite?")
-            == QMessageBox::Yes) {
+            const auto choice = QMessageBox::question(this, "Overwrite?", QFileInfo(target).fileName() + " exists. Overwrite?");
+            if (choice == QMessageBox::Yes) {
                 QFile::remove(target);
             }
             else {
@@ -226,6 +246,7 @@ public:
                 moveCurrent();
                 break;
 
+            case Qt::Key_D:
             case Qt::Key_Delete:
                 deleteCurrent();
                 break;
@@ -247,7 +268,7 @@ int main(int argc, char **argv)
     args.removeFirst(); // drop program name
 
     if (args.isEmpty()) {
-        fputs("USAGE: memeview FILE [FILE...]\n", stderr);
+        fputs("USAGE: memeview file...\n", stderr);
         return 2;
     }
 
