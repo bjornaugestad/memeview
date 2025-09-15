@@ -6,26 +6,27 @@ static bool isImg(const QString &p)
     return exts.contains(QFileInfo(p).suffix().toLower());
 }
 
-struct State
-{
+struct FileSet {
     QStringList files;
-    int i = 0;
-    QString cur() const { return files.value(i); }
+    int _icurr = 0;
+
+    QString cur() const { return files.value(_icurr); }
+
     void dropCurrent()
     {
-        files.removeAt(i);
-        if (i >= files.size())
-            i = qMax(0, i - 1);
+        files.removeAt(_icurr);
+        if (_icurr >= files.size())
+            _icurr = qMax(0, _icurr - 1);
     }
+
     bool empty() const { return files.isEmpty(); }
 };
 
 class View : public QLabel
 {
-    Q_OBJECT
-    State s;
+    Q_OBJECT FileSet set;
 
-  public:
+public:
     explicit View(QStringList paths, QWidget *parent = nullptr) : QLabel(parent)
     {
         setAlignment(Qt::AlignCenter);
@@ -33,17 +34,18 @@ class View : public QLabel
         setFocusPolicy(Qt::StrongFocus);
         setFocus(Qt::OtherFocusReason);
 
-        // Ta kun gyldige bildefiler (args er filer, ikke kataloger)
         for (const QString &pth : paths) {
             QFileInfo fi(pth);
             if (fi.isFile() && isImg(fi.filePath()))
-                s.files << fi.absoluteFilePath();
+                set.files << fi.absoluteFilePath();
         }
-        if (s.empty()) {
+
+        if (set.empty()) {
             fputs("No valid image files.\n", stderr);
             QTimer::singleShot(0, this, &QWidget::close);
             return;
         }
+
         showImg();
     }
 
@@ -60,40 +62,43 @@ class View : public QLabel
     // ----- core -----
     void showImg()
     {
-        QImageReader r(s.cur());
+        QImageReader r(set.cur());
         r.setAutoTransform(true);
         const QImage img = r.read();
         if (img.isNull()) {
-            setText("Failed: " + s.cur());
+            setText("Failed: " + set.cur());
         }
         else {
             setPixmap(QPixmap::fromImage(img).scaled(size(), Qt::KeepAspectRatio, Qt::SmoothTransformation));
-            setWindowTitle(QFileInfo(s.cur()).fileName());
+            setWindowTitle(QFileInfo(set.cur()).fileName());
         }
+
         setFocus(Qt::OtherFocusReason);
     }
+
     void next()
     {
-        if (s.i < s.files.size() - 1) {
-            ++s.i;
+        if (set._icurr < set.files.size() - 1) {
+            ++set._icurr;
             showImg();
         }
     }
+
     void prev()
     {
-        if (s.i > 0) {
-            --s.i;
+        if (set._icurr > 0) {
+            --set._icurr;
             showImg();
         }
     }
 
     void renameCurrent()
     {
-        QFileInfo fi(s.cur());
+        QFileInfo fi(set.cur());
         bool ok = false;
         const QString base = fi.completeBaseName();
         QString nn = QInputDialog::getText(this, "Rename", base, QLineEdit::Normal, base, &ok);
-        if (!(ok && !nn.isEmpty())) {
+        if (!ok || nn.isEmpty()) {
             setFocus(Qt::OtherFocusReason);
             return;
         }
@@ -104,15 +109,16 @@ class View : public QLabel
 
         const QString np = fi.dir().filePath(nn);
         if (QFile::exists(np)) {
-            if (QMessageBox::question(this, "Overwrite?", QFileInfo(np).fileName() + " exists. Overwrite?")
-            != QMessageBox::Yes) {
+            if (QMessageBox::question(this, "Overwrite?", QFileInfo(np).fileName() + " exists. Overwrite?") != QMessageBox::Yes) {
                 setFocus(Qt::OtherFocusReason);
                 return;
             }
+
             QFile::remove(np);
         }
+
         if (QFile::rename(fi.absoluteFilePath(), np)) {
-            s.files[s.i] = QFileInfo(np).absoluteFilePath();
+            set.files[set._icurr] = QFileInfo(np).absoluteFilePath();
             showImg();
         }
         else {
@@ -123,14 +129,15 @@ class View : public QLabel
 
     void deleteCurrent()
     { // permanent delete
-        const QString path = s.cur();
+        const QString path = set.cur();
         if (!QFile::remove(path)) {
             QMessageBox::warning(this, "Delete failed", "Could not delete file.");
             setFocus(Qt::OtherFocusReason);
             return;
         }
-        s.dropCurrent();
-        if (!s.empty())
+
+        set.dropCurrent();
+        if (!set.empty())
             showImg();
         else
             close();
@@ -138,24 +145,20 @@ class View : public QLabel
 
     void moveCurrent()
     {
-        QFileInfo fi(s.cur());
+        QFileInfo fi(set.cur());
         QDir parent = fi.dir();
 
-        // Lag liste over undermapper i nåværende mappe
+        // make list of subdirs
         QStringList subdirs;
         for (const QFileInfo &d : parent.entryInfoList(QDir::Dirs | QDir::NoDotAndDotDot, QDir::Name))
             subdirs << d.fileName();
 
         bool ok = false;
-        // Redigerbar liste: bruk relativt navn for søskenmappe, eller absolutt sti
         QString choice = QInputDialog::getItem(this,
-        "Move to directory",
-        "Destination directory:",
-        subdirs,
-        0,
-        /*editable*/ true,
-        &ok);
-        if (!(ok && !choice.trimmed().isEmpty())) {
+            "Move to directory", "Destination directory:",
+            subdirs, 0, true, &ok);
+
+        if (!ok || choice.trimmed().isEmpty()) {
             setFocus(Qt::OtherFocusReason);
             return;
         }
@@ -171,15 +174,18 @@ class View : public QLabel
 
         if (QFile::exists(target)) {
             if (QMessageBox::question(this, "Overwrite?", QFileInfo(target).fileName() + " exists. Overwrite?")
-            != QMessageBox::Yes) {
+            == QMessageBox::Yes) {
+                QFile::remove(target);
+            }
+            else {
                 setFocus(Qt::OtherFocusReason);
                 return;
             }
-            QFile::remove(target);
         }
+
         if (QFile::rename(fi.absoluteFilePath(), target)) {
-            s.dropCurrent();
-            if (!s.empty())
+            set.dropCurrent();
+            if (!set.empty())
                 showImg();
             else
                 close();
@@ -193,9 +199,10 @@ class View : public QLabel
     // ----- events -----
     void resizeEvent(QResizeEvent *) override
     {
-        if (!s.empty())
+        if (!set.empty())
             showImg();
     }
+
     void keyPressEvent(QKeyEvent *e) override
     {
         switch (e->key()) {
@@ -204,23 +211,29 @@ class View : public QLabel
             case Qt::Key_N:
                 next();
                 break;
+
             case Qt::Key_Left:
             case Qt::Key_H:
             case Qt::Key_P:
                 prev();
                 break;
+
             case Qt::Key_R:
                 renameCurrent();
                 break;
+
             case Qt::Key_M:
                 moveCurrent();
                 break;
+
             case Qt::Key_Delete:
                 deleteCurrent();
                 break;
+
             case Qt::Key_Q:
                 close();
                 break;
+
             default:
                 QLabel::keyPressEvent(e);
         }
@@ -231,12 +244,14 @@ int main(int argc, char **argv)
 {
     QApplication app(argc, argv);
     QStringList args = app.arguments();
-    args.removeFirst(); // drop programnavn
+    args.removeFirst(); // drop program name
+
     if (args.isEmpty()) {
         fputs("USAGE: memeview FILE [FILE...]\n", stderr);
         return 2;
     }
-    // Shell ekspanderer ~, men la oss være hyggelige hvis noen siterer det
+
+    // Shell expands ~, but let's be explicit
     for (QString &a : args)
         if (a.startsWith("~"))
             a.replace(0, 1, QDir::homePath());
