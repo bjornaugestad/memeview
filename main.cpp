@@ -1,6 +1,8 @@
 #include <QApplication>
 #include <QtWidgets>
 
+#include <QClipboard>
+
 static bool is_image(const QString &p)
 {
     static const QSet<QString> exts = {"png", "jpg", "jpeg", "webp", "bmp", "gif"};
@@ -44,6 +46,18 @@ class View : public QLabel
     Q_OBJECT FileSet set;
 
 public:
+    void copyCurrentToClipboard()
+    {
+        QImageReader r(set.cur());
+        r.setAutoTransform(true);
+        const QImage img = r.read();
+        if (img.isNull())
+            return;
+
+        QClipboard *cb = QGuiApplication::clipboard();
+        cb->setImage(img, QClipboard::Clipboard);
+    }
+
     explicit View(QStringList paths, QWidget *parent = nullptr) : QLabel(parent)
     {
         setAlignment(Qt::AlignCenter);
@@ -227,6 +241,7 @@ public:
     {
         switch (e->key()) {
             case Qt::Key_Right:
+            case Qt::Key_K:
             case Qt::Key_L:
             case Qt::Key_N:
                 next();
@@ -234,8 +249,13 @@ public:
 
             case Qt::Key_Left:
             case Qt::Key_H:
+            case Qt::Key_J:
             case Qt::Key_P:
                 prev();
+                break;
+
+            case Qt::Key_C:
+                copyCurrentToClipboard();
                 break;
 
             case Qt::Key_R:
@@ -247,6 +267,10 @@ public:
                 break;
 
             case Qt::Key_D:
+                if (e->modifiers() & Qt::ShiftModifier)
+                    deleteCurrent();
+                break;
+
             case Qt::Key_Delete:
                 deleteCurrent();
                 break;
