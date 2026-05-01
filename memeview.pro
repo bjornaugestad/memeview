@@ -6,6 +6,6 @@ CONFIG += c++17
 SOURCES += main.cpp
 
 # install
-target.path = /home/boa/bin
+target.path = ~/bin
 INSTALLS += target
 
