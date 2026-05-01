@@ -4,3 +4,4 @@ moc_*.h
 qrc_*.cpp
 ui_*.h
 .gdbinit
+.qmake.stash
